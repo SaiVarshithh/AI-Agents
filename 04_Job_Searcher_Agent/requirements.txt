@@ -1,0 +1,10 @@
+streamlit>=1.35.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+jmespath>=1.0.1
+playwright>=1.44.0
+PyPDF2>=3.0.0
+docx2txt>=0.8
+huggingface_hub>=0.23.0
