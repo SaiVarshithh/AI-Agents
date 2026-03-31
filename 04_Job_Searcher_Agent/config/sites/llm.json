@@ -1,0 +1,6 @@
+{
+  "name": "llm",
+  "label": "AI-Powered Search",
+  "enabled": true,
+  "strategy": "llm_powered"
+}

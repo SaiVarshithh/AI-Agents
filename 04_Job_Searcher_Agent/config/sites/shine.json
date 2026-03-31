@@ -1,0 +1,17 @@
+{
+  "name": "shine",
+  "label": "Shine.com",
+  "enabled": true,
+  "strategy": "playwright_html",
+  "bootstrap_url": null,
+  "search_url": "https://www.shine.com/job-search/{{keywords_slug}}-jobs-in-{{locations_slug}}/?updated_at_range={{job_age_days}}d",
+  "request": {},
+  "response": {
+    "items_path": ""
+  },
+  "paging": {
+    "mode": "none"
+  },
+  "mappings": {},
+  "transforms": {}
+}

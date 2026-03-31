@@ -1,0 +1,33 @@
+{
+  "name": "naukri",
+  "label": "Naukri.com",
+  "enabled": true,
+  "strategy": "playwright_intercept",
+  "bootstrap_url": null,
+  "search_url": "https://www.naukri.com/{{keywords_slug}}-jobs-in-{{locations_slug}}?k={{keywords_url}}&l={{locations_url}}&jobAge={{job_age_days}}&noOfResults={{max_results_per_source}}",
+  "request": {},
+  "response": {
+    "items_path": "jobDetails",
+    "intercept_url_contains": "jobapi"
+  },
+  "paging": {
+    "mode": "none"
+  },
+  "mappings": {
+    "job_id": "jobId",
+    "title": "title",
+    "company": "companyName",
+    "location": "placeholders[?type=='location'].label | [0]",
+    "experience": "placeholders[?type=='experience'].label | [0]",
+    "salary": "placeholders[?type=='salary'].label | [0]",
+    "posted_date": "createdDate",
+    "description": "jobDescription",
+    "apply_url": "jdURL",
+    "tech_stack": "tagsAndSkills"
+  },
+  "transforms": {
+    "posted_date": "naukri_epoch_ms_to_ymd",
+    "apply_url": "naukri_jdurl_to_absolute",
+    "tech_stack": "csv_to_list"
+  }
+}

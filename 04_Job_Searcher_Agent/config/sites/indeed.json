@@ -1,0 +1,7 @@
+{
+  "name": "indeed",
+  "label": "Indeed.com",
+  "enabled": true,
+  "strategy": "playwright_html",
+  "search_url": "https://www.indeed.com/jobs?q={{keywords_url}}&l={{locations_url}}"
+}
