@@ -32,7 +32,6 @@ class Settings:
         # Keep only the proven-working set (fast + reliable fallbacks).
         "facebook/bart-large-cnn",
         "mistralai/Mistral-7B-Instruct-v0.3",
-        "google/flan-t5-base",
         "ollama/qwen2.5-coder:1.5b",
     ]
 
