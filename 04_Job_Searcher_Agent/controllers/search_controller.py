@@ -36,16 +36,17 @@ class SearchController:
         if config.enable_llm_scoring:
             from services.llm.ensemble_llm import EnsembleLLM
             from config.settings import settings
-            import copy
             drivers = []
             
             if config.hf_token:
+                # Speed: don't run *all* HF models for every job.
+                # Use the user-selected HF model, plus one stable summarization fallback.
                 from services.llm.hf_llm import HuggingFaceLLM
-                for m in settings.SUPPORTED_MODELS:
-                    if m.startswith("ollama/"): continue
-                    cfg = copy.deepcopy(config)
-                    cfg.hf_model = m
-                    drivers.append(HuggingFaceLLM(cfg))
+                if config.hf_model and not config.hf_model.startswith("ollama/"):
+                    drivers.append(HuggingFaceLLM(config))
+                if config.hf_model != "facebook/bart-large-cnn" and "facebook/bart-large-cnn" in settings.SUPPORTED_MODELS:
+                    cfg2 = SearchConfig(**{**config.__dict__, "hf_model": "facebook/bart-large-cnn"})
+                    drivers.append(HuggingFaceLLM(cfg2))
                     
             from services.llm.ollama_llm import OllamaLLM
             ollama_models = [m for m in settings.SUPPORTED_MODELS if m.startswith("ollama/")]
@@ -63,11 +64,19 @@ class SearchController:
     def run(self, progress_callback=None) -> List[Job]:
         logger.info("Starting job search")
 
+        def _emit(msg: str, progress: float | None = None):
+            if not progress_callback:
+                return
+            if progress is None:
+                progress_callback(msg)
+            else:
+                p = max(0.0, min(1.0, float(progress)))
+                progress_callback(f"__PROGRESS__:{p:.3f}:{msg}")
+
         if self.config.candidate_resume_text and not self.config.keywords and self.llm and self.llm.drivers:
             # We need keywords to search Indeed/Monster, extract them!
             logger.info("Extracting search keywords from resume...")
-            if progress_callback:
-                progress_callback("🧠 Analyzing your resume to extract search keywords and tech stack...")
+            _emit("🧠 Analyzing your resume to extract search keywords and tech stack...", progress=0.05)
             
             prompt = f"<s>[INST] Extract the primary job title and the top 10 technical skills from this resume.\n\nRules:\n- TECH_STACK must include languages, frameworks, databases, cloud/devops/tools, and data/ML tools if present.\n- Prefer canonical names (e.g., FastAPI, PostgreSQL, MLflow, Airflow, Spark, Kubernetes, Docker, GraphQL, REST).\n- Keep TECH_STACK as a comma-separated list.\n\nResume excerpt:\n{self.config.candidate_resume_text[:3000]}\n\nRespond ONLY in this format:\nKEYWORDS: <Job Title>\nTECH_STACK: <Skill 1, Skill 2, ... Skill 10>[/INST]"
             result = ""
@@ -84,12 +93,10 @@ class SearchController:
                     
             if not result:
                 logger.error("All LLM drivers failed to extract resume keywords!")
-                if progress_callback:
-                    progress_callback("❌ Error: All LLMs failed. Please provide keywords manually.")
+                _emit("❌ Error: All LLMs failed. Please provide keywords manually.", progress=0.08)
             else:
                 logger.info(f"LLM Resume extraction result:\n{result}")
-                if progress_callback:
-                    progress_callback(f"📄 Resume analyzed. Extraction:\n{result}")
+                _emit(f"📄 Resume analyzed. Extraction:\n{result}", progress=0.10)
                 
                 for line in result.split('\n'):
                     line = line.strip()
@@ -143,10 +150,12 @@ class SearchController:
         logger.info(f"Running {len(tasks)} scraping tasks")
 
         results = []
+        total_tasks = max(1, len(tasks))
         for config_dict, site_dict, source in tasks:
             logger.info(f"Starting subprocess for {source}")
-            if progress_callback:
-                progress_callback(f"🔍 Scraping {source.capitalize()}...")
+            # Scraping phase occupies 10% -> 45%
+            done = len(results)
+            _emit(f"🔍 Scraping {source.capitalize()}...", progress=0.10 + (done / total_tasks) * 0.35)
             try:
                 result = subprocess.run(
                     [sys.executable, WORKER_SCRIPT,
@@ -190,16 +199,18 @@ class SearchController:
             except Exception as e:
                 results.append((source, [], str(e)))
                 logger.error(f"Exception scraping {source}: {e}")
+            finally:
+                # Update progress after each scraper completes (successful or not)
+                done2 = len(results)
+                _emit(f"📦 Finished {source.capitalize()} scrape.", progress=0.10 + (done2 / total_tasks) * 0.35)
 
         for source, jobs, error in results:
             if error:
                 logger.error(f"Scraper '{source}' failed: {error}")
-                if progress_callback:
-                    progress_callback(f"❌ {source.capitalize()} scraper failed: {error[:200]}")
+                _emit(f"❌ {source.capitalize()} scraper failed: {error[:200]}")
             else:
                 all_jobs.extend(jobs)
-                if progress_callback:
-                    progress_callback(f"✅ {source.capitalize()}: {len(jobs)} jobs found")
+                _emit(f"✅ {source.capitalize()}: {len(jobs)} jobs found")
 
         # Deduplicate by (title + company)
         all_jobs = self._deduplicate(all_jobs)
@@ -215,8 +226,7 @@ class SearchController:
         # LLM analysis (scoring + detailed breakdown)
         if self.llm and all_jobs:
             logger.info(f"Starting LLM analysis for {len(all_jobs)} jobs")
-            if progress_callback:
-                progress_callback(f"🤖 Analyzing {len(all_jobs)} jobs with LLM...")
+            _emit(f"🤖 Analyzing {len(all_jobs)} jobs with LLM...", progress=0.45)
 
             # Cache results across reruns (huge speedup for repeated searches)
             cache = LLMCache(os.path.join("output", "llm_cache.json"))
@@ -237,8 +247,11 @@ class SearchController:
                     j, sc, sm = fut.result()
                     j.relevance_score = sc
                     j.match_summary = sm
-                    if progress_callback and idx % 10 == 0:
-                        progress_callback(f"🤖 Scored {idx}/{len(all_jobs)} jobs...")
+                    # scoring phase 45% -> 70% (update on every completion for smooth bar)
+                    _emit(
+                        f"🤖 Scored {idx}/{len(all_jobs)} jobs...",
+                        progress=0.45 + (idx / max(1, len(all_jobs))) * 0.25,
+                    )
 
             # Sort by score desc before detailed analysis
             all_jobs.sort(key=lambda j: (j.relevance_score, j.posted_date), reverse=True)
@@ -246,8 +259,7 @@ class SearchController:
             # Phase 2: detailed analysis only for top-N jobs (scales to 1000+ jobs)
             top_n = min(len(all_jobs), int(getattr(self.config, "max_results_total", 50) or 50))
             to_analyze = all_jobs[:top_n]
-            if progress_callback:
-                progress_callback(f"🤖 Deep-analyzing top {top_n}/{len(all_jobs)} jobs...")
+            _emit(f"🤖 Deep-analyzing top {top_n}/{len(all_jobs)} jobs...", progress=0.70)
 
             def _analyze_one(j: Job):
                 # Try cache per-driver best effort. For the ensemble, cache on the first driver's model.
@@ -261,7 +273,10 @@ class SearchController:
                 except Exception:
                     res = self.llm._fallback_analysis(j)
                 if isinstance(res, dict) and res:
-                    cache.set(key, res)
+                    try:
+                        cache.set(key, res)
+                    except Exception as e:
+                        logger.warning(f"LLM cache write failed, continuing without cache: {e}")
                 return j, res
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -273,11 +288,13 @@ class SearchController:
                     j.llm_joining_period = analysis.get("joining_period", "") or j.llm_joining_period
                     j.llm_location_detail = analysis.get("location_detail", "") or j.llm_location_detail
                     j.llm_detailed_summary = analysis.get("detailed_summary", "") or j.llm_detailed_summary
-                    if progress_callback and idx % 5 == 0:
-                        progress_callback(f"🤖 Deep-analyzed {idx}/{top_n} jobs...")
+                    # deep phase 70% -> 95% (update on every completion for smooth bar)
+                    _emit(
+                        f"🤖 Deep-analyzed {idx}/{top_n} jobs...",
+                        progress=0.70 + (idx / max(1, top_n)) * 0.25,
+                    )
 
-            if progress_callback:
-                progress_callback(f"✅ LLM analysis completed for {len(all_jobs)} jobs")
+            _emit(f"✅ LLM analysis completed for {len(all_jobs)} jobs", progress=0.95)
             logger.info("LLM analysis completed")
         elif all_jobs:
             # No LLM configured — use fallback analysis for structure

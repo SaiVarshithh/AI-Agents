@@ -1,6 +1,8 @@
 import json
 import os
+import tempfile
 import threading
+import time
 from hashlib import sha1
 from typing import Any, Optional
 
@@ -32,10 +34,29 @@ class LLMCache:
 
     def _save(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, ensure_ascii=False)
-        os.replace(tmp, self.path)
+        # Windows can raise PermissionError if another process/scan briefly holds the file.
+        # Use a unique temp file + retry atomic replace.
+        dir_ = os.path.dirname(self.path) or "."
+        last_exc: Exception | None = None
+        for attempt in range(6):
+            fd, tmp = tempfile.mkstemp(prefix="llm_cache_", suffix=".json.tmp", dir=dir_)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self._data, f, ensure_ascii=False)
+                try:
+                    os.replace(tmp, self.path)
+                    return
+                except PermissionError as e:
+                    last_exc = e
+                    time.sleep(0.05 * (attempt + 1))
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
+        if last_exc:
+            raise last_exc
 
     @staticmethod
     def make_key(model: str, job_id: str, apply_url: str, description: str) -> str:
