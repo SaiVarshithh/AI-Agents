@@ -26,6 +26,9 @@ class HuggingFaceLLM(BaseLLM):
         # Keep an auto-router client as a fallback in case a model is only available via a partner provider.
         self.client_hf = InferenceClient(provider="hf-inference", api_key=self.token)
         self.client_auto = InferenceClient(provider="auto", api_key=self.token)
+        self._disable_chat = False
+        self._disable_text_generation = False
+        self._logged_unsupported = False
 
     # ─── Core API call ────────────────────────────────────────────────────────
 
@@ -39,33 +42,43 @@ class HuggingFaceLLM(BaseLLM):
         for attempt in range(settings.MAX_RETRIES):
             try:
                 # Many providers expose chat-only ("conversational") models; try chat first.
-                try:
-                    msg = [{"role": "user", "content": prompt}]
-                    resp = self.client_hf.chat_completion(
-                        messages=msg, model=self.model, max_tokens=max_tokens, temperature=0.3
-                    )
-                    content = ""
+                if not self._disable_chat:
                     try:
-                        content = resp.choices[0].message.content  # type: ignore[attr-defined]
-                    except Exception:
-                        # Best-effort fallback for shape differences across versions/providers
-                        content = getattr(resp, "generated_text", "") or str(resp)
-                    content = (content or "").strip()
-                    if content:
-                        return content
-                except Exception:
-                    pass
+                        msg = [{"role": "user", "content": prompt}]
+                        resp = self.client_hf.chat_completion(
+                            messages=msg, model=self.model, max_tokens=max_tokens, temperature=0.3
+                        )
+                        content = ""
+                        try:
+                            content = resp.choices[0].message.content  # type: ignore[attr-defined]
+                        except Exception:
+                            content = getattr(resp, "generated_text", "") or str(resp)
+                        content = (content or "").strip()
+                        if content:
+                            return content
+                    except Exception as e:
+                        # If HF chat endpoint rejects the request (often 400), don't keep hammering it.
+                        if "400" in str(e) or "Bad Request" in str(e):
+                            self._disable_chat = True
 
                 # Fallback: classic text-generation models
-                text = self.client_hf.text_generation(
-                    prompt,
-                    model=self.model,
-                    max_new_tokens=max_tokens,
-                    temperature=0.3,
-                    return_full_text=False,
-                )
-                return (text or "").strip()
+                if not self._disable_text_generation:
+                    text = self.client_hf.text_generation(
+                        prompt,
+                        model=self.model,
+                        max_new_tokens=max_tokens,
+                        temperature=0.3,
+                        return_full_text=False,
+                    )
+                    return (text or "").strip()
             except Exception as e:
+                msg = str(e)
+                if "doesn't support task 'text-generation'" in msg or "doesn't support task \"text-generation\"" in msg:
+                    self._disable_text_generation = True
+                    if not self._logged_unsupported:
+                        logger.warning(f"HF model task mismatch; disabling text-generation for {self.model}")
+                        self._logged_unsupported = True
+
                 # Fallback path: some models are "summarization" pipeline models (e.g. bart-large-cnn).
                 # This will not follow structured "SCORE/TECH_STACK" formats, but returning *something*
                 # lets the ensemble keep moving if other drivers succeed; otherwise callers treat empty as failure.
@@ -98,16 +111,17 @@ class HuggingFaceLLM(BaseLLM):
                 except Exception:
                     pass
                 try:
-                    text = self.client_auto.text_generation(
-                        prompt,
-                        model=self.model,
-                        max_new_tokens=max_tokens,
-                        temperature=0.3,
-                        return_full_text=False,
-                    )
-                    text = (text or "").strip()
-                    if text:
-                        return text
+                    if not self._disable_text_generation:
+                        text = self.client_auto.text_generation(
+                            prompt,
+                            model=self.model,
+                            max_new_tokens=max_tokens,
+                            temperature=0.3,
+                            return_full_text=False,
+                        )
+                        text = (text or "").strip()
+                        if text:
+                            return text
                 except Exception:
                     pass
 
