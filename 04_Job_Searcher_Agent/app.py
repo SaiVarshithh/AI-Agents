@@ -5,6 +5,7 @@ import asyncio
 import streamlit as st
 import logging
 from datetime import datetime
+import time
 
 # Set up logging
 logging.basicConfig(
@@ -42,6 +43,18 @@ st.set_page_config(
 # ─── Custom CSS ─────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+    /* Light theme override for readability */
+    .stApp {
+        background: #ffffff;
+        color: #111111;
+    }
+    .stApp [data-testid="stMarkdownContainer"] {
+        color: #111111;
+    }
+    .stApp p, .stApp div, .stApp span, .stApp label {
+        color: #111111;
+    }
+
     .main-title {
         font-size: 2.4rem;
         font-weight: 800;
@@ -78,12 +91,26 @@ st.markdown("""
     }
     a { text-decoration: none !important; }
     .status-box {
-        background: #0e1117;
+        background: #ffffff;
+        color: #111111;
+        border: 1px solid #e6e8ee;
         border-left: 4px solid #667eea;
         padding: 0.75rem 1rem;
         border-radius: 0 8px 8px 0;
         margin-bottom: 0.5rem;
         font-size: 0.9rem;
+    }
+    .skill-chip {
+        display: inline-block;
+        padding: 6px 10px;
+        margin: 6px 8px 0 0;
+        border-radius: 999px;
+        border: 1px solid #e6e8ee;
+        background: #f8fafc;
+        color: #111111;
+        font-size: 0.85rem;
+        font-weight: 600;
+        line-height: 1;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -126,9 +153,28 @@ if search_clicked:
 
         status_placeholder = st.empty()
         progress_bar = st.progress(0)
+        eta_placeholder = st.empty()
         log_messages = []
+        t0 = time.time()
+        last_progress = {"p": 0.0}
 
         def update_progress(msg: str):
+            # Parse structured progress messages from controller:
+            # "__PROGRESS__:0.420:message"
+            if isinstance(msg, str) and msg.startswith("__PROGRESS__:"):
+                try:
+                    _, p_str, rest = msg.split(":", 2)
+                    p = float(p_str)
+                    p = max(0.0, min(1.0, p))
+                    progress_bar.progress(int(p * 100))
+                    last_progress["p"] = p
+                    elapsed = max(0.001, time.time() - t0)
+                    if p > 0.02:
+                        eta_s = int(elapsed * (1 - p) / p)
+                        eta_placeholder.caption(f"Elapsed: {int(elapsed)}s • ETA: ~{eta_s}s")
+                    msg = rest
+                except Exception:
+                    pass
             log_messages.append(msg)
             with status_placeholder.container():
                 for m in log_messages[-5:]:
@@ -138,7 +184,7 @@ if search_clicked:
 
         controller = SearchController(config)
         jobs = controller.run(progress_callback=update_progress)
-        progress_bar.progress(80)
+        progress_bar.progress(max(80, int(last_progress["p"] * 100)))
 
         if jobs:
             applied_store = AppliedStore()
@@ -177,7 +223,11 @@ if st.session_state.search_done and st.session_state.jobs:
             st.write(config.keywords or "—")
         with c2:
             st.caption("Skills & Technologies")
-            st.write(", ".join(config.tech_stacks) if config.tech_stacks else "—")
+            if config.tech_stacks:
+                chips = "".join([f'<span class="skill-chip">{st}</span>' for st in config.tech_stacks])
+                st.markdown(chips, unsafe_allow_html=True)
+            else:
+                st.write("—")
         st.markdown("---")
 
     # Controls row
