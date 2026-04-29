@@ -1,0 +1,86 @@
+[
+  {
+    "id": "68090898",
+    "timestamp": "2026-04-29T22:29:52.489985",
+    "language": "python",
+    "model": "qwen3:4b",
+    "code_preview": "a = 10\nb = 100\n\nprint(a+c)",
+    "line_count": 4,
+    "summary": {
+      "total_issues": 1,
+      "critical": 0,
+      "warnings": 0,
+      "overall_score": "Excellent"
+    }
+  },
+  {
+    "id": "19a71418",
+    "timestamp": "2026-04-29T22:27:14.598839",
+    "language": "python",
+    "model": "qwen3:4b",
+    "code_preview": "a = 10\nb = 100\n\nprint(a+c)",
+    "line_count": 4,
+    "summary": {
+      "total_issues": 1,
+      "critical": 0,
+      "warnings": 0,
+      "overall_score": "Excellent"
+    }
+  },
+  {
+    "id": "da8783a3",
+    "timestamp": "2026-04-29T22:26:52.782582",
+    "language": "python",
+    "model": "qwen3:4b",
+    "code_preview": "for i in range(10)\n    print(1)",
+    "line_count": 2,
+    "summary": {
+      "total_issues": 1,
+      "critical": 1,
+      "warnings": 0,
+      "overall_score": "Fair"
+    }
+  },
+  {
+    "id": "8f360da7",
+    "timestamp": "2026-04-29T22:25:49.936171",
+    "language": "python",
+    "model": "qwen3:4b",
+    "code_preview": "print(1",
+    "line_count": 1,
+    "summary": {
+      "total_issues": 1,
+      "critical": 1,
+      "warnings": 0,
+      "overall_score": "Fair"
+    }
+  },
+  {
+    "id": "ad5e15e2",
+    "timestamp": "2026-04-29T22:25:09.193161",
+    "language": "python",
+    "model": "qwen3:4b",
+    "code_preview": "print('a)",
+    "line_count": 1,
+    "summary": {
+      "total_issues": 1,
+      "critical": 1,
+      "warnings": 0,
+      "overall_score": "Fair"
+    }
+  },
+  {
+    "id": "3f775377",
+    "timestamp": "2026-04-29T22:16:45.961326",
+    "language": "python",
+    "model": "qwen3:4b",
+    "code_preview": "print('a)",
+    "line_count": 1,
+    "summary": {
+      "total_issues": 1,
+      "critical": 1,
+      "warnings": 0,
+      "overall_score": "Fair"
+    }
+  }
+]
